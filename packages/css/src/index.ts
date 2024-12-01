@@ -4,11 +4,9 @@ import {shortUUID} from "@ixe/utils";
 const styleMap = new Map<string, number>();
 
 const useInsertionEffect = React.useInsertionEffect || React.useLayoutEffect;
-const ixe=1;
 
-
-console.log(ixe)
 export type CSSText = string
+
 export default function useInject(textContent: CSSText) {
     useInsertionEffect(() => {
         let count = styleMap.get(textContent) || 0
