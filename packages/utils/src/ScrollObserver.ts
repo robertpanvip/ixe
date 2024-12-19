@@ -1,3 +1,5 @@
+import {getIntersectionByRect, getIntersectionRatio} from "./DOMRect";
+
 export interface ScrollObserverCallback {
     (entries: IntersectionObserverEntry[], observer: ScrollObserver): void;
 }
@@ -91,31 +93,15 @@ const getIntersectionRect = (element: Element) => {
     const scrollableParents = findScrollableParents(element);
 
     let intersectionRect: IntersectionRect = elementRect;
-    //console.log('intersectionRect', element, intersectionRect);
+
     [...scrollableParents, window].forEach((ele) => {
         const scrollRect = getBoundingClientRect(ele)
-        //console.log('scrollRect', ele, scrollRect);
         // 计算目标元素和滚动父元素之间的交集区域
-        const intersectLeft = Math.max(intersectionRect.left, scrollRect.left);
-        const intersectTop = Math.max(intersectionRect.top, scrollRect.top);
-        const intersectRight = Math.min(intersectionRect.right, scrollRect.right);
-        const intersectBottom = Math.min(intersectionRect.bottom, scrollRect.bottom);
+        const res = getIntersectionByRect(<DOMRect>intersectionRect, scrollRect)
         // 如果没有交集区域，跳过
-        if (intersectRight <= intersectLeft || intersectBottom <= intersectTop) return;
-
-        intersectionRect = {
-            x: intersectLeft,
-            y: intersectTop,
-            left: intersectLeft,
-            top: intersectTop,
-            right: intersectRight,
-            bottom: intersectBottom,
-            width: intersectRight - intersectLeft,
-            height: intersectBottom - intersectTop,
-        };
-        //console.log(intersectionRect)
+        if (res.width == 0 || res.height == 0) return;
+        intersectionRect = res;
     });
-
 
     return intersectionRect as DOMRect;
 }
@@ -131,13 +117,7 @@ export function getIntersection(element: Element): IntersectionObserverEntry {
             return getIntersectionRect(element)
         },
         get intersectionRatio() {
-            const intersectionRect = this.intersectionRect
-            // 计算交集区域面积
-            const intersectionArea = intersectionRect.width * intersectionRect.height;
-            const elementRect = this.boundingClientRect;
-            // 计算元素的面积
-            const elementArea = elementRect.width * elementRect.height;
-            return intersectionArea / elementArea
+            return getIntersectionRatio(this.intersectionRect, this.boundingClientRect)
         },
         get isIntersecting() {
             const intersectionRect = this.intersectionRect
@@ -188,7 +168,7 @@ export default class ScrollObserver {
                         scrollManager.add(ele, scrollCache.get(target)!)
                     })
                 } else {
-                    unobserve(target, scrolls);
+                    //unobserve(target, scrolls);
                 }
             });
         }, {

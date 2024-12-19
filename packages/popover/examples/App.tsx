@@ -15,7 +15,7 @@ function App() {
                 </p>
             </div>
             <div style={{height: 200, border: '1px solid red', overflow: 'auto'}}>
-                <div style={{height: 100}}></div>
+                <div style={{height: 300}}></div>
                 <Popover content={123}>
                     <button>
                         Click me

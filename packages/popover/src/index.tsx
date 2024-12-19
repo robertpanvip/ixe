@@ -1,23 +1,17 @@
 import * as React from "react"
+import {useLayoutEffect, useMemo, useRef} from "react"
 import {createPortal} from "react-dom";
-import {useEffect, useLayoutEffect, useRef, useState} from "react";
-import {getIntersection, ScrollObserver, shortUUID} from "@ixe/utils";
+import {getIntersection, ScrollObserver, shortUUID, getIntersectionStatus} from "@ixe/utils";
 import Ref from "@ixe/ref";
 import useInject from "@ixe/css";
+import {Offset, Placement, Trigger} from "./interface";
+import {PlacementStrategy} from "./strategy";
+import useTrigger from "./useTrigger";
 
-type Placement =
-    'top'
-    | 'left'
-    | 'right'
-    | 'bottom'
-    | 'topLeft'
-    | 'topRight'
-    | 'bottomLeft'
-    | 'bottomRight'
-    | 'leftTop'
-    | 'leftBottom'
-    | 'rightTop'
-    | 'rightBottom'
+export type {
+    Placement,
+    Trigger
+}
 
 export interface PopoverProps {
     /**
@@ -32,7 +26,20 @@ export interface PopoverProps {
     children?: React.ReactNode;
 
     content?: React.ReactNode;
-    placement?: Placement
+    placement?: Placement;
+    /**
+     * 触发行为，可选 hover | focus | click | contextMenu，
+     * 可使用数组设置多个触发行为
+     */
+    trigger?: Trigger | Trigger[];
+    /**
+     * 鼠标移入后延时多少才显示，单位：秒
+     * */
+    mouseEnterDelay?: number;
+    /**
+     * 鼠标移出后延时多少才隐藏，单位：秒
+     * */
+    mouseLeaveDelay?: number;
 }
 
 
@@ -55,6 +62,7 @@ const css = (
          pointer-events: none;
          position:relative;
          z-index:0;
+         box-sizing: border-box;
     }
      .${prefixCls}anchor .${prefixCls}content {
          position:relative;
@@ -64,14 +72,12 @@ const css = (
          justify-content: center;
          flex-direction: column;
          gap: 0.5em;
-         background-color: #ffffff;
          background-clip: padding-box;
-         border-radius: 8px;
-         box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
-         padding: 12px;
          border-radius: 4px;
          box-sizing: border-box;
          pointer-events: all;
+         width: fit-content;
+         height: fit-content;
     }
     .${prefixCls}anchor .${prefixCls}indicator{
         line-height:0;
@@ -93,147 +99,6 @@ const css = (
     }
     `
 
-type PlacementConfig = {
-    [key in Placement]: (
-        rect: DOMRect,
-        targetRect: DOMRect
-    ) => DOMRect;
-};
-
-const PlacementConfig: PlacementConfig = {
-    top: (rect, targetRect) => {
-        const {x, y, width} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width / 2 - targetWidth / 2,
-            y: y - targetHeight,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    left: (rect, targetRect) => {
-        const {x, y, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x - targetWidth,
-            y: y + height / 2 - targetHeight / 2,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    right: (rect, targetRect) => {
-        const {x, y, width, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width,
-            y: y + height / 2 - targetHeight / 2,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    bottom: (rect, targetRect) => {
-        const {x, y, width, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width / 2 - targetWidth / 2,
-            y: y + height,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    topLeft: (rect, targetRect) => {
-        const {x, y} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x,
-            y: y - targetHeight,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    topRight: (rect, targetRect) => {
-        const {x, y, width} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width - targetWidth,
-            y: y - targetHeight,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    bottomLeft: (rect, targetRect) => {
-        const {x, y, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x,
-            y: y + height,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    bottomRight: (rect, targetRect) => {
-        const {x, y, width, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width - targetWidth,
-            y: y + height,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    leftTop: (rect, targetRect) => {
-        const {x, y} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x - targetWidth,
-            y,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    leftBottom: (rect, targetRect) => {
-        const {x, y, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x - targetWidth,
-            y: y + height - targetHeight,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    rightTop: (rect, targetRect) => {
-        const {x, y, width} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width,
-            y,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    },
-    rightBottom: (rect, targetRect) => {
-        const {x, y, width, height} = rect;
-        const {width: targetWidth, height: targetHeight} = targetRect;
-        return {
-            ...rect,
-            x: x + width,
-            y: y + height - targetHeight,
-            width: targetWidth,
-            height: targetHeight,
-        };
-    }
-};
 
 const Popover = (
     {
@@ -241,6 +106,7 @@ const Popover = (
         children,
         prefixCls = `${shortUUID(css(''))}`,
         placement = 'top',
+        ...rest
     }: PopoverProps
 ) => {
     if (!prefixCls.endsWith('-')) {
@@ -249,62 +115,66 @@ const Popover = (
     const ref = useRef<HTMLDivElement>(null);
     const maskRef = useRef<HTMLDivElement>(null);
     const maskContentRef = useRef<HTMLDivElement>(null);
-    const [open, setOpen] = useState(false)
+
+    const [open] = useTrigger(rest, ref, maskContentRef)
+
     useInject(css(prefixCls));
 
-    const setViewBoxStyle = (rect: DOMRect) => {
-        const {x, y, width, height} = rect;
+    const updateContentStyle = (
+        intersection: DOMRect,
+        rect: DOMRect,
+        offset: Offset
+    ) => {
+        const status = getIntersectionStatus(rect, intersection);
+        const {x, y, width, height} = intersection;
         const target = maskRef.current!
         const content = maskContentRef.current!;
         const {height: contentHeight, width: contentWidth} = content.getBoundingClientRect();
-        target.style.transform = `translate(${x - contentWidth}px,${y - contentHeight}px)`;
+        let tx = x;
+        let ty = y;
+        let maskWidth = width;
+        let maskHeight = height;
+        if (placement?.startsWith('top')) {
+            ty = y - contentHeight;
+            maskHeight = height + contentHeight;
+        } else if (placement?.startsWith('left')) {
+            tx = x - contentWidth;
+            maskWidth = width + contentWidth
+        } else if (placement?.startsWith('bottom')) {
+            ty = y;
+            maskHeight = height + contentHeight
+        } else if (placement?.startsWith('right')) {
+            tx = x;
+            maskWidth = width + contentWidth
+        }
+        //const tx = x - contentWidth;
+        //const ty = y - contentHeight;
+
+        target.style.transform = `translate(${tx}px,${ty}px)`;
         target.style.opacity = '1';
-        target.style.width = `${width + 2 * contentWidth}px`;
-        target.style.height = `${height + 2 * contentHeight}px`;
-        target.style.opacity = '1';
+
+        target.style.width = `${maskWidth}px`;
+        target.style.height = `${maskHeight}px`;
+        //target.style.width = `${width + 2 * contentWidth}px`;
+        //target.style.height = `${height + 2 * contentHeight}px`;
+
+        content.style.transform = `translate(${(rect.x - tx + offset.tx)}px,${(rect.y - ty + offset.ty)}px)`;
+        //content.style.transform = `translate(${(rect.x - tx)}px,${(rect.y - ty)}px)`;
+        if (status.direction === 'bottom') {
+            console.log(status.ratio);
+            content.style.opacity = `${status.ratio}`;
+        } else {
+            content.style.opacity = '1';
+        }
     }
 
-    const setContentStyle = (rect: DOMRect, bound: DOMRect) => {
-        const {x, y} = rect;
+    const getOffsetByPlacement = useMemo(() => () => {
+        const target = ref.current!
         const content = maskContentRef.current!;
-        const {height, width} = content.getBoundingClientRect();
-        content.style.transform = `translate(${bound.x - x + width}px,${bound.y - y + height}px)`;
-        content.style.width = `${bound.width}px`;
-        content.style.height = `${bound.height}px`;
-    }
-
-    function getParamsByPlacement(rect: DOMRect) {
-        const target = ref.current!
         const targetRect = target.getBoundingClientRect();
-        return PlacementConfig[placement]?.(rect, targetRect)
-    }
-
-
-    useEffect(() => {
-        const target = ref.current!
-        if (!target) {
-            return () => void 0
-        }
-        const handleClick = (e: MouseEvent) => {
-            console.log('click', e);
-            setOpen(true);
-            e.stopPropagation();
-            const onOutClick = (ev: MouseEvent) => {
-                console.log('xxx', ev.target, maskContentRef.current!.contains(ev.target! as HTMLElement))
-                if (!maskContentRef.current!.contains(ev.target! as HTMLElement)) {
-                    setOpen(false);
-                    document.removeEventListener('click', onOutClick)
-                }
-            }
-            document.addEventListener('click', onOutClick)
-        }
-
-        target.addEventListener('click', handleClick)
-
-        return () => {
-            target.removeEventListener('click', handleClick)
-        }
-    }, [prefixCls])
+        const rect = content.getBoundingClientRect();
+        return PlacementStrategy[placement]?.(targetRect, rect)
+    }, [placement])
 
 
     useLayoutEffect(() => {
@@ -312,20 +182,27 @@ const Popover = (
         if (!target || !open) {
             return () => void 0
         }
-        const rob = new ResizeObserver(() => {
+        const setStyle = (boundingClientRect: DOMRect) => {
+            const offset = getOffsetByPlacement()
             const {intersectionRect} = getIntersection(target.parentElement!);
-            setViewBoxStyle(intersectionRect);
+            maskRef.current!.style.opacity = '0';
+            updateContentStyle(intersectionRect, boundingClientRect, offset);
+            maskRef.current!.style.opacity = '1';
+        }
+
+        const boundingClientRect = target.getBoundingClientRect();
+        setStyle(boundingClientRect)
+
+        const rob = new ResizeObserver(() => {
             const boundingClientRect = target.getBoundingClientRect();
-            const offset = getParamsByPlacement(boundingClientRect)
-            setContentStyle(intersectionRect, offset)
+            setStyle(boundingClientRect)
         });
+
         rob.observe(target);
         const sb = new ScrollObserver((entries) => {
             entries.forEach(entry => {
-                const {intersectionRect} = getIntersection(target.parentElement!);
-                setViewBoxStyle(intersectionRect);
-                const offset = getParamsByPlacement(entry.boundingClientRect)
-                setContentStyle(intersectionRect, offset)
+                const boundingClientRect = entry.boundingClientRect;
+                setStyle(boundingClientRect)
             });
         })
         sb.observe(target);
@@ -335,7 +212,7 @@ const Popover = (
             sb.unobserve(target);
             sb.disconnect();
         }
-    }, [prefixCls, open])
+    }, [prefixCls, open, getOffsetByPlacement, placement])
 
     return (
         <>
