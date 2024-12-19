@@ -1,10 +1,13 @@
-import {useRef, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import './App.scss'
 import Ref from "../src";
 
 function App() {
     const [count, setCount] = useState(0);
     const ref = useRef<Element>(null)
+    useEffect(() => {
+        console.log('ref', ref.current)
+    }, [])
     return (
         <>
             <Ref ref={ref}>

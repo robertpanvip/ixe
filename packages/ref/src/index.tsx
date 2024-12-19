@@ -1,7 +1,9 @@
 import * as React from "react";
 import HTMLComment from "./HTMLComment";
+import {useCallback} from "react";
 
-export interface RefProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface RefProps {
+    children?: React.ReactNode
 }
 
 function updateRef(
@@ -36,10 +38,10 @@ const RefRender: React.ForwardRefRenderFunction<
     };
 
     // 重新分配内容节点的 ref
-    const assignRef = () => {
+    const assignRef = useCallback(() => {
         contentsRef.current = resolveContent(commentRef.current!);
         updateRef(contentsRef.current, ref); // 当 DOM 变化时更新 ref
-    };
+    }, [ref]);
 
     React.useLayoutEffect(() => {
         const parent = commentRef.current!.parentNode;
@@ -71,7 +73,7 @@ const RefRender: React.ForwardRefRenderFunction<
         return () => {
             ob.disconnect(); // 组件卸载时断开观察器
         };
-    }, [ref]);
+    }, [assignRef, ref]);
     return (
         <>
             <HTMLComment ref={commentRef}/>
