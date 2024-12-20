@@ -4,11 +4,6 @@ export interface CommentProps {
     data?: string;
 }
 
-type ElementLike = {
-    setAttribute: () => boolean;
-    style: object;
-};
-
 function canUseDom() {
     return !!(
         typeof window !== 'undefined' &&
@@ -36,9 +31,7 @@ if (canUseDom()) {
                 const match = options?.is.match(regex);
                 if (match) {
                     const data = match[1].trim?.();
-                    const comment = document.createComment(data) as unknown as ElementLike;
-                    comment.setAttribute = () => true;
-                    comment.style = {};
+                    const comment = document.createComment(data);
                     return comment as unknown as HTMLElement;
                 }
             }
@@ -55,7 +48,7 @@ function CommentRender(
 ) {
     return (
         <noscript
-            ref={ref as React.ForwardedRef<null | HTMLMetaElement>}
+            ref={ref as React.ForwardedRef<null | HTMLElement>}
             is={`${TagSymbol}${data}`}
         />
     );
