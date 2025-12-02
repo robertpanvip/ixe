@@ -11,14 +11,17 @@ function App() {
     return (
         <>
             <Ref ref={ref}>
-                <div className="card">
-                    <button onClick={() => setCount((count) => count + 1)}>
-                        count is {count}
-                    </button>
-                    <p>
-                        Edit <code>src/App.tsx</code> and save to test HMR
-                    </p>
-                </div>
+                {
+                    count % 2 == 0 && <div className="card">
+                        <button onClick={() => setCount((count) => count + 1)}>
+                            count is {count}
+                        </button>
+                        <p>
+                            Edit <code>src/App.tsx</code> and save to test HMR
+                        </p>
+                    </div>
+                }
+
             </Ref>
             <h1>Vite + React</h1>
 

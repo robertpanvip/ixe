@@ -4,94 +4,169 @@
   return;
 }*/
 
-/**
- * 创建并注册高亮（支持多 Range）
- * @param {Array<Range>} ranges - DOM Range 数组
- * @param {string} highlightName - 注册名，如 'search-yellow'
- */
-export function registerHighlight(ranges: Range[], highlightName: string) {
-  // 创建 Highlight 对象（传入多个 Range）
-  const highlight = new Highlight(...ranges);
-
-  // 注册：用 set() 而不是 register！
-  CSS.highlights.set(highlightName, highlight);
-
-  console.log(`高亮 "${highlightName}" 已注册，共 ${ranges.length} 个范围`, ranges);
-}
+// 全局 registry： highlightName -> (ele -> Range[])
+const highlightRegistry = new Map<string, Map<Element, Range[]>>();
 
 export function queryTextNodes(node: Element) {
-  const nodeIterator = document.createNodeIterator(node, NodeFilter.SHOW_TEXT, (node) =>
-    /\S/.test(node.textContent || "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
-  );
-  const textNodes: Text[] = [];
-  let currentNode: Node | null;
-  while ((currentNode = nodeIterator.nextNode())) {
-    textNodes.push(currentNode as Text);
-  }
-  return textNodes;
+    const nodeIterator = document.createNodeIterator(node, NodeFilter.SHOW_TEXT, (node) =>
+        /\S/.test(node.textContent || "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+    );
+    const textNodes: Text[] = [];
+    let currentNode: Node | null;
+    while ((currentNode = nodeIterator.nextNode())) {
+        textNodes.push(currentNode as Text);
+    }
+    return textNodes;
 }
+
 type NodeOffset = { node: Text; start: number; end: number };
 
-const style = document.createElement("style");
-style.innerHTML = `
-  /* 黄色的搜索高亮 */
-::highlight(search-yellow) {
+const globalHighlightStyle = document.createElement("style");
+
+// highlightName -> CSS text node
+const highlightCssNodes = new Map<string, Text>();
+
+function addStyleToHead(highlightName: string) {
+    const styleContent = document.createTextNode(`
+::highlight(${highlightName}) {
   background-color: #ffeb3b;
   color: #000;
+}`)
+    globalHighlightStyle.appendChild(styleContent)
+    highlightCssNodes.set(highlightName, styleContent)
+    if (!document.head.contains(globalHighlightStyle)) {
+        document.head.appendChild(globalHighlightStyle);
+    }
 }
 
-/* 红色的错误高亮 */
-::highlight(error-red) {
-  background-color: #ff5252;
-  color: #fff;
+/** 确保某个 highlightName 只有一个 style 标签 */
+function ensureStyleFor(highlightName: string) {
+    if (!highlightCssNodes.has(highlightName)) {
+        addStyleToHead(highlightName)
+    }
 }
-  `;
 
-// 自定义函数：搜索并高亮关键词
-export function highlightKeyword(
-  editor: Element,
-  keyword: string,
-  highlightName = "search-yellow"
-) {
-  clearHighlight(highlightName);
-  if (!document.head.contains(style)) {
-    document.head.appendChild(style);
-  }
-  requestAnimationFrame(() => {
-    const allTextNodes = queryTextNodes(editor);
-    // 1. 拼接所有文本节点内容，记录每个节点的起始全局偏移
+/** 移除 highlight style（当没有任何元素使用时） */
+function removeStyleFor(highlightName: string) {
+    const node = highlightCssNodes.get(highlightName);
+    if (node) {
+        globalHighlightStyle.removeChild(node);
+        highlightCssNodes.delete(highlightName);
+    }
+}
+
+function getRangesByKeyword(ele: Element, keyword: string) {
+    // 1. 搜集文本节点并计算全局偏移
+    const allTextNodes = queryTextNodes(ele);
     let fullText = "";
     const nodeOffsets: NodeOffset[] = [];
     allTextNodes.forEach((node) => {
-      const start = fullText.length;
-      const text = node.textContent || "";
-      fullText += text;
-      const end = fullText.length;
-      nodeOffsets.push({ node, start, end });
+        const start = fullText.length;
+        const text = node.textContent || "";
+        fullText += text;
+        const end = fullText.length;
+        nodeOffsets.push({node, start, end});
     });
-    // 2. 查找所有匹配关键词的位置
+
+    // 2. 找到所有匹配位置，构造 Range 数组
     const ranges: Range[] = [];
     let pos = 0;
     while ((pos = fullText.indexOf(keyword, pos)) !== -1) {
-      const range = new Range();
+        const startInfo = findNodeAtOffset(nodeOffsets, pos);
+        const endInfo = findNodeAtOffset(nodeOffsets, pos + keyword.length - 1);
+        // 注意 endInfo: 我们传入最后一个字符的索引，然后在 setEnd 时使用 offset + 1
+        if (startInfo && endInfo) {
+            const range = new Range();
+            range.setStart(startInfo.node, startInfo.offset);
+            range.setEnd(endInfo.node, endInfo.offset + 1);
+            ranges.push(range);
+        }
+        pos += keyword.length;
+    }
+    return ranges;
+}
 
-      // 3. 根据全局偏移映射到具体文本节点和偏移
-      const startInfo = findNodeAtOffset(nodeOffsets, pos);
-      const endInfo = findNodeAtOffset(nodeOffsets, pos + keyword.length);
+// 自定义函数：搜索并高亮关键词
+/** 主高亮函数（会把 ranges 注册到 registry，并返回一个用于清理当前 ele 高亮的函数） */
+export function highlight(
+    ele: Element,
+    keyword: string,
+    highlightName = "search-yellow"
+) {
+    const ranges = keyword ? getRangesByKeyword(ele, keyword) : [];
+    // 2. 注册（替换该元素在 highlightName 下的 ranges）
+    registerHighlight(ele, ranges, highlightName);
+    // 3. 返回清理函数：只移除当前元素在该 highlightName 下的 ranges
+    return () => {
+        clearElementHighlight(ele, highlightName);
+    };
+}
 
-      if (startInfo && endInfo) {
-        range.setStart(startInfo.node, startInfo.offset);
-        range.setEnd(endInfo.node, endInfo.offset);
-        ranges.push(range);
-      }
-      pos += keyword.length;
+/**
+ * 注册/更新某个元素在指定 highlightName 下的 ranges（替换该元素之前的 ranges）
+ * 会把该 highlightName 下所有元素的 ranges 合并，再 set 到 CSS.highlights
+ */
+export function registerHighlight(ele: Element, ranges: Range[], highlightName: string) {
+    // 获取或创建 per-name map
+    let per = highlightRegistry.get(highlightName);
+    if (!per) {
+        per = new Map<Element, Range[]>();
+        highlightRegistry.set(highlightName, per);
     }
 
-    // 4. 注册高亮
-    if (ranges.length > 0) {
-      registerHighlight(ranges, highlightName);
+    // 存储/替换该元素的 ranges
+    per.set(ele, ranges.slice()); // 保持数组副本，避免外部修改影响
+
+    // 合并所有元素的 ranges 并设置 Highlight
+    const combined: AbstractRange[] = [];
+    per.forEach(rArr => {
+        if (Array.isArray(rArr) && rArr.length) combined.push(...rArr);
+    });
+
+    // 如果没有任何 ranges，则删除 highlight 与样式
+    if (combined.length === 0) {
+        if (CSS.highlights.has(highlightName)) CSS.highlights.delete(highlightName);
+        removeStyleFor(highlightName);
+        return;
     }
-  });
+
+    // 确保 style 只创建一次
+    ensureStyleFor(highlightName);
+
+    // 创建并设置 Highlight
+    const highlight = new Highlight(...combined);
+    CSS.highlights.set(highlightName, highlight);
+
+    // 返回当前 highlight 对象（可选）
+    return highlight;
+}
+
+/**
+ * 删除某个元素在指定 highlightName 下的 ranges（不影响其他元素）
+ * 若该 highlightName 无剩余元素，则会删除全局 highlight 与 style
+ */
+export function clearElementHighlight(ele: Element, highlightName: string) {
+    const per = highlightRegistry.get(highlightName);
+    if (!per) return;
+
+    per.delete(ele);
+
+    // 重建或删除全局 highlight
+    const combined: AbstractRange[] = [];
+    per.forEach(rArr => {
+        if (Array.isArray(rArr) && rArr.length) combined.push(...rArr);
+    });
+
+    if (combined.length === 0) {
+        // 没有任何元素的 ranges，彻底清除
+        if (CSS.highlights.has(highlightName)) CSS.highlights.delete(highlightName);
+        removeStyleFor(highlightName);
+        highlightRegistry.delete(highlightName);
+    } else {
+        // 重新设置合并后的 Highlight
+        const highlight = new Highlight(...combined);
+        CSS.highlights.set(highlightName, highlight);
+    }
 }
 
 /**
@@ -100,24 +175,13 @@ export function highlightKeyword(
  * @param globalOffset 全局字符偏移
  */
 function findNodeAtOffset(
-  nodeOffsets: NodeOffset[],
-  globalOffset: number
+    nodeOffsets: NodeOffset[],
+    globalOffset: number
 ): { node: Text; offset: number } | null {
-  for (const { node, start, end } of nodeOffsets) {
-    if (globalOffset >= start && globalOffset <= end) {
-      return { node, offset: globalOffset - start };
+    for (const {node, start, end} of nodeOffsets) {
+        if (globalOffset >= start && globalOffset <= end) {
+            return {node, offset: globalOffset - start};
+        }
     }
-  }
-  return null;
+    return null;
 }
-
-// 清除高亮
-function clearHighlight(highlightName:string) {
-  if (CSS.highlights.has(highlightName)) {
-    CSS.highlights.delete(highlightName);
-    console.log(`高亮 "${highlightName}" 已清除`);
-  }
-}
-
-// 调用
-//highlightWithCSSAPI(editor, "高亮字段", "search-yellow");
