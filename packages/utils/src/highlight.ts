@@ -56,33 +56,38 @@ export function queryTextNodes(node: Element) {
 
 function getNodeOffsetsFromInnerText(ele: HTMLElement) {
     const allTextNodes = queryTextNodes(ele);
-    const fullText = ele.innerText; // 视觉文本，包括换行
+    const fullText = ele.innerText;
     const nodeOffsets: NodeOffset[] = [];
-    let pos = 0; // innerText 中的全局偏移
+    let fullTextPos = 0;
 
     for (const node of allTextNodes) {
+
         const text = node.textContent || "";
         if (!text) continue;
 
-        // 找到 text 在 fullText 中对应的位置
-        const indexInFullText = fullText.indexOf(text, pos);
-        if (indexInFullText === -1) {
-            // 如果 text 和 innerText 不完全匹配，需要特殊处理（可能有换行）
-            // 可以按字符逐个匹配
-            continue;
+        const start = fullTextPos;
+        let i = 0, j = start;
+
+        // 按字符匹配 textContent 到 fullText
+        while (i < text.length && j < fullText.length) {
+            if (text[i] === fullText[j]) {
+                i++;
+            }
+            j++;
         }
 
-        nodeOffsets.push({
-            node,
-            start: indexInFullText,
-            end: indexInFullText + text.length
-        });
-
-        pos = indexInFullText + text.length;
+        if (i === text.length) {
+            const end = j;
+            nodeOffsets.push({ node, start, end });
+            fullTextPos = end;
+        } else {
+            fullTextPos = j;
+        }
     }
 
-    return {fullText, nodeOffsets};
+    return { fullText, nodeOffsets };
 }
+
 
 function getRangesByKeyword(ele: HTMLElement, keyword: string) {
     // 1. 搜集文本节点并计算全局偏移
