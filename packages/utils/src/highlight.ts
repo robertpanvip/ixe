@@ -54,18 +54,39 @@ export function queryTextNodes(node: Element) {
     return textNodes;
 }
 
-function getRangesByKeyword(ele: Element, keyword: string) {
-    // 1. 搜集文本节点并计算全局偏移
+function getNodeOffsetsFromInnerText(ele: HTMLElement) {
     const allTextNodes = queryTextNodes(ele);
-    let fullText = "";
+    const fullText = ele.innerText; // 视觉文本，包括换行
     const nodeOffsets: NodeOffset[] = [];
-    allTextNodes.forEach((node) => {
-        const start = fullText.length;
+    let pos = 0; // innerText 中的全局偏移
+
+    for (const node of allTextNodes) {
         const text = node.textContent || "";
-        fullText += text;
-        const end = fullText.length;
-        nodeOffsets.push({node, start, end});
-    });
+        if (!text) continue;
+
+        // 找到 text 在 fullText 中对应的位置
+        const indexInFullText = fullText.indexOf(text, pos);
+        if (indexInFullText === -1) {
+            // 如果 text 和 innerText 不完全匹配，需要特殊处理（可能有换行）
+            // 可以按字符逐个匹配
+            continue;
+        }
+
+        nodeOffsets.push({
+            node,
+            start: indexInFullText,
+            end: indexInFullText + text.length
+        });
+
+        pos = indexInFullText + text.length;
+    }
+
+    return {fullText, nodeOffsets};
+}
+
+function getRangesByKeyword(ele: HTMLElement, keyword: string) {
+    // 1. 搜集文本节点并计算全局偏移
+    const {fullText, nodeOffsets} = getNodeOffsetsFromInnerText(ele)
 
     // 2. 找到所有匹配位置，构造 Range 数组
     const ranges: Range[] = [];
@@ -88,7 +109,7 @@ function getRangesByKeyword(ele: Element, keyword: string) {
 // 自定义函数：搜索并高亮关键词
 /** 主高亮函数（会把 ranges 注册到 registry，并返回一个用于清理当前 ele 高亮的函数） */
 export function highlight(
-    ele: Element,
+    ele: HTMLElement,
     keyword: string,
     highlightName = "search-yellow"
 ) {
