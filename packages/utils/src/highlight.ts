@@ -3,23 +3,10 @@
   console.warn("CSS Custom Highlight API 不支持！");
   return;
 }*/
+type NodeOffset = { node: Text; start: number; end: number };
 
 // 全局 registry： highlightName -> (ele -> Range[])
 const highlightRegistry = new Map<string, Map<Element, Range[]>>();
-
-export function queryTextNodes(node: Element) {
-    const nodeIterator = document.createNodeIterator(node, NodeFilter.SHOW_TEXT, (node) =>
-        /\S/.test(node.textContent || "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
-    );
-    const textNodes: Text[] = [];
-    let currentNode: Node | null;
-    while ((currentNode = nodeIterator.nextNode())) {
-        textNodes.push(currentNode as Text);
-    }
-    return textNodes;
-}
-
-type NodeOffset = { node: Text; start: number; end: number };
 
 const globalHighlightStyle = document.createElement("style");
 
@@ -53,6 +40,18 @@ function removeStyleFor(highlightName: string) {
         globalHighlightStyle.removeChild(node);
         highlightCssNodes.delete(highlightName);
     }
+}
+
+export function queryTextNodes(node: Element) {
+    const nodeIterator = document.createNodeIterator(node, NodeFilter.SHOW_TEXT, (node) =>
+        /\S/.test(node.textContent || "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+    );
+    const textNodes: Text[] = [];
+    let currentNode: Node | null;
+    while ((currentNode = nodeIterator.nextNode())) {
+        textNodes.push(currentNode as Text);
+    }
+    return textNodes;
 }
 
 function getRangesByKeyword(ele: Element, keyword: string) {
